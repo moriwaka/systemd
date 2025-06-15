@@ -1,0 +1,59 @@
+---
+title: Login Interaction Flow
+category: Users, Groups and Home Directories
+layout: default
+SPDX-License-Identifier: LGPL-2.1-or-later
+---
+
+# Login Interaction Flow
+
+This document gives an overview of how `pam_systemd`,
+`systemd-logind`, and `systemd` (PID 1) cooperate
+when a user session is established and terminated.
+
+## Session start
+
+1. A login program (for example `login`, `sshd`, or a display
+   manager) invokes PAM.  If the configuration includes the
+   `pam_systemd` module in the *session* stack, the module
+   registers the new session with
+   [`systemd-logind.service`](https://www.freedesktop.org/software/systemd/man/latest/systemd-logind.service.html).
+2. `pam_systemd` contacts `systemd-logind` over D‑Bus.  Using
+   calls such as `CreateSession()`, `systemd-logind`
+   allocates a session identifier, creates a session scope unit
+   and starts the per-user service
+   [`user@.service`](https://www.freedesktop.org/software/systemd/man/latest/user@.service.html)
+   if it is not running yet.
+3. During this step the user runtime directory
+   `/run/user/$UID` is prepared (via
+   `user-runtime-dir@.service`), various environment variables
+   like `XDG_SESSION_ID` are set, and resource limits from the
+   user record are applied.
+4. The session scope is placed under the appropriate user slice
+   (for example `user-<uid>.slice`).
+
+## Session end
+
+1. When the PAM session closes, `pam_systemd` notifies
+   `systemd-logind` that the session is finished.
+2. Depending on
+   [`logind.conf`](https://www.freedesktop.org/software/systemd/man/latest/logind.conf.html)
+   settings, `systemd-logind` may terminate remaining processes in
+   the scope and stop the per-user service if no other sessions
+   remain.
+3. The user runtime directory is removed when the last session of
+   the user ends.
+
+## Relation to `systemd`
+
+`systemd-logind` itself is a system service managed by
+`systemd`.  It relies on `systemd` to create and manage the slice
+and scope units that collect user processes.  Communication between
+`pam_systemd`, `systemd-logind`, and PID 1 happens over D‑Bus.
+
+Applications can use the
+[`sd-login(3)`](https://www.freedesktop.org/software/systemd/man/latest/sd-login.html)
+API or the
+[`org.freedesktop.login1`](https://www.freedesktop.org/software/systemd/man/latest/org.freedesktop.login1.html)
+D‑Bus interface to query session and seat information.
+
